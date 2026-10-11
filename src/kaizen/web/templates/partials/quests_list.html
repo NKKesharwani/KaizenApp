@@ -1,0 +1,50 @@
+<div id="quests-container" class="system-card">
+  <div class="card-header">
+    <div class="card-title">📜 Daily Quest: Preparation for Getting Stronger</div>
+    <span class="badge-xp">{{ today_date }}</span>
+  </div>
+
+  {% if all_cleared %}
+    <div class="daily-banner-cleared">
+      🌟 [DAILY QUEST CLEARED] You have achieved +1% mastery for today!
+    </div>
+  {% else %}
+    <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+      Complete all assigned quests to unlock today's +1% mastery increment and bonus XP.
+    </p>
+  {% endif %}
+
+  <div class="quests-wrapper">
+    {% for quest in quests %}
+      <div class="quest-item {% if quest.is_completed %}completed{% endif %}">
+        <div class="quest-info">
+          <h4>
+            {% if quest.is_completed %}✅{% else %}⏳{% endif %}
+            {{ quest.title }}
+          </h4>
+          <p>{{ quest.description }}</p>
+          <div class="quest-meta">
+            <span class="badge-diff">Rank {{ quest.difficulty }}</span>
+            <span class="badge-xp">+{{ quest.xp_reward }} XP</span>
+            <span style="color: var(--text-muted);">Source: {{ quest.source }}</span>
+          </div>
+        </div>
+
+        <div>
+          {% if quest.is_completed %}
+            <button class="btn-system btn-disabled" disabled>Cleared</button>
+          {% else %}
+            <button 
+              class="btn-system btn-complete"
+              hx-post="/api/quests/{{ quest.id }}/complete"
+              hx-target="#quests-container"
+              hx-swap="outerHTML"
+            >
+              Complete
+            </button>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>

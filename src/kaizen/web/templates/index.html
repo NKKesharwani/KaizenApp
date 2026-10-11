@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% if not player %}
+  <div id="main-content" class="system-card awakening-card">
+    <div class="card-header">
+      <div class="card-title">⬆ System Awakening Window</div>
+    </div>
+    <p class="intro-copy">No Player found. Initialize your awakening by registering your active skill.</p>
+    <form action="/api/register" method="post">
+      <input type="text" name="hunter_name" placeholder="Hunter Name" required class="system-input" value="Hunter" maxlength="64">
+      <input type="text" name="skill_name" placeholder="Skill to Grind" required class="system-input" maxlength="128">
+      <button type="submit" class="btn-system" style="width: 100%;">Awaken as Player</button>
+    </form>
+  </div>
+{% else %}
+<div id="main-dashboard" class="grid-layout">
+  <!-- Left Column: Status & Directives -->
+  <div>
+    {% include "partials/status_card.html" %}
+
+    {% if not active_skill %}
+      <div class="system-card">
+        <div class="card-header">
+          <div class="card-title">⬆ Choose a New Skill</div>
+        </div>
+        <form action="/api/register" method="post">
+          <input type="hidden" name="hunter_name" value="{{ player.hunter_name }}">
+          <input type="text" name="skill_name" placeholder="Skill to Grind" required class="system-input" maxlength="128">
+          <button type="submit" class="btn-system" style="width: 100%;">Set Active Skill</button>
+        </form>
+      </div>
+    {% endif %}
+
+    <!-- System Log Submission -->
+    <div class="system-card">
+      <div class="card-header">
+        <div class="card-title">📝 Record Training Log</div>
+      </div>
+      <form hx-post="/api/log" hx-target="#log-result" hx-swap="innerHTML">
+        <textarea 
+          name="notes" 
+          rows="3" 
+          placeholder="Record today's training details, breakthroughs, or errors..." 
+          class="system-textarea"
+          required
+        ></textarea>
+        <button type="submit" class="btn-system" style="width: 100%;">Submit to System</button>
+      </form>
+      <div id="log-result"></div>
+    </div>
+
+    <!-- Coach Chat Window -->
+    <div class="system-card">
+      <div class="card-header">
+        <div class="card-title">💬 System Voice Channel</div>
+      </div>
+      <form hx-post="/api/coach" hx-target="#coach-result" hx-swap="innerHTML">
+        <input 
+          type="text" 
+          name="message" 
+          placeholder="Address the System..." 
+          class="system-input"
+          required
+        >
+        <button type="submit" class="btn-system" style="width: 100%;">Transmit Message</button>
+      </form>
+      <div id="coach-result"></div>
+    </div>
+  </div>
+
+  <!-- Right Column: Daily Quests Window & Activity -->
+  <div>
+    {% include "partials/quests_list.html" %}
+
+    <!-- History & Logs -->
+    <div class="system-card">
+      <div class="card-header">
+        <div class="card-title">📊 System Logs & Records</div>
+      </div>
+      {% if logs %}
+        {% for log in logs %}
+          <div style="border-bottom: 1px solid rgba(0, 210, 255, 0.15); padding: 0.8rem 0;">
+            <div style="display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 0.8rem; margin-bottom: 0.3rem;">
+              <span style="color: var(--border-cyan);">{{ log.log_date }}</span>
+              <span>
+                {% if log.day_cleared %}<span style="color: var(--accent-green);">CLEARED (+1%)</span>{% else %}<span style="color: var(--text-muted);">PARTIAL</span>{% endif %}
+                &bull; +{{ log.xp_earned }} XP
+              </span>
+            </div>
+            {% if log.user_notes %}
+              <p style="font-size: 0.85rem; color: #fff;">{{ log.user_notes }}</p>
+            {% endif %}
+            {% if log.ai_feedback %}
+              <div class="ai-bubble" style="margin-top: 0.4rem; font-size: 0.8rem;">
+                <strong>System Analysis:</strong> {{ log.ai_feedback }}
+              </div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        {% else %}
+          <p style="color: var(--text-muted); font-size: 0.85rem;">No historical logs recorded yet.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,2 @@
+[console_scripts]
+kaizen = kaizen.__main__:main

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kaizen"
+version = "0.1.0"
+description = "Solo Leveling-style skill improvement tracker"
+requires-python = ">=3.11"
+dependencies = [
+    "discord.py",
+    "fastapi",
+    "uvicorn[standard]",
+    "jinja2",
+    "python-multipart",
+    "sqlalchemy",
+    "pydantic",
+    "pydantic-settings",
+    "python-dotenv",
+    "apscheduler",
+    "requests>=2.31.0",
+    "pytest",
+]
+
+[project.scripts]
+kaizen = "kaizen.__main__:main"

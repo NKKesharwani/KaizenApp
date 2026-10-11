@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Kaizen // The System{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+</head>
+<body>
+  <div class="container">
+    <header class="system-header">
+      <div class="system-badge">System Interface v0.1 // Solo Leveling Architecture</div>
+      <h1 class="system-title">Kaizen</h1>
+      <p class="system-subtitle">Continuous Evolution &bull; Daily 1% Progression Tracker</p>
+    </header>
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

@@ -1,0 +1,56 @@
+<div id="status-card" class="system-card">
+  <div class="card-header">
+    <div class="card-title">⬆ Player Status Window</div>
+    <span class="badge-diff">ID: {{ player.discord_user_id }}</span>
+  </div>
+
+  <div class="hunter-badge">
+    <div class="rank-orb">{{ player.rank }}</div>
+    <div class="hunter-meta">
+      <h3>{{ player.hunter_name }}</h3>
+      <div class="level-tag">LEVEL {{ player.level }} HUNTER</div>
+    </div>
+  </div>
+
+  <div class="progress-group">
+    <div class="progress-label">
+      <span>{{ active_skill.name if active_skill else 'Active Stat' }} Mastery</span>
+      <span><strong>{{ active_skill.mastery_pct if active_skill else 0.0 }}%</strong> / 100%</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" style="width: {{ active_skill.mastery_pct if active_skill else 0 }}%;"></div>
+    </div>
+  </div>
+
+  <div class="progress-group">
+    <div class="progress-label">
+      <span>Experience Points (XP)</span>
+      <span>{{ player.current_xp }} / {{ xp_needed }} XP</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill xp" style="width: {{ xp_pct }}%;"></div>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-box">
+      <div class="val">🔥 {{ player.current_streak }}</div>
+      <div class="lbl">Streak (Days)</div>
+    </div>
+    <div class="stat-box">
+      <div class="val">⭐ {{ player.max_streak }}</div>
+      <div class="lbl">Max Streak</div>
+    </div>
+    <div class="stat-box">
+      <div class="val">🏆 {{ player.total_days_cleared }}</div>
+      <div class="lbl">Days Cleared</div>
+    </div>
+  </div>
+
+  {% if active_skill %}
+    <form action="/api/skill/remove" method="post" class="skill-remove-form"
+      onsubmit="return confirm('Remove {{ active_skill.name|e }} and its mastery? Today\'s quest records will be removed. XP already earned, level, streak, logs, and completed quest history from earlier days will remain.');">
+      <button type="submit" class="btn-system btn-danger">Remove Active Skill</button>
+    </form>
+  {% endif %}
+</div>

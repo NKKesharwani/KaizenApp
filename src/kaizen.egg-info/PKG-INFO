@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: kaizen
+Version: 0.1.0
+Summary: Solo Leveling-style skill improvement tracker
+Requires-Python: >=3.11
+Requires-Dist: discord.py
+Requires-Dist: fastapi
+Requires-Dist: uvicorn[standard]
+Requires-Dist: jinja2
+Requires-Dist: python-multipart
+Requires-Dist: sqlalchemy
+Requires-Dist: pydantic
+Requires-Dist: pydantic-settings
+Requires-Dist: python-dotenv
+Requires-Dist: apscheduler
+Requires-Dist: google-genai
+Requires-Dist: pytest

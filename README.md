@@ -17,7 +17,7 @@ A **Solo Leveling**-inspired skill improvement tracker with **1% daily progressi
 
 1. **Clone the repo**
    ```sh
-   git clone https://github.com/yourusername/kaizen.git
+   git clone https://github.com/NKKesharwani/kaizen.git
    cd kaizen
    ```
 

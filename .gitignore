@@ -19,7 +19,6 @@ django.conf
 kaizen.db
 # .env file
 .env
-.env.example
 # Created by Cookiecutter
 *.env
 # PyCharm

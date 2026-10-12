@@ -59,7 +59,9 @@ async def daily_reset_job() -> None:
                 continue
             # Generate new quests for today (overwrites any existing)
             skill_name = player.active_skill.name
-            ai_quests = ai_client.generate_daily_quests(
+            # Run synchronous AI call in thread pool to avoid blocking event loop
+            ai_quests = await asyncio.to_thread(
+                ai_client.generate_daily_quests,
                 skill_name=skill_name,
                 player_level=player.level,
                 player_rank=player.rank,

@@ -104,6 +104,33 @@ class KaizenBot(commands.Bot):
         except Exception as e:
             logger.warning("Failed to sync slash commands: %s", e)
 
+    async def on_message(self, message: discord.Message) -> None:
+        """Accept ordinary chat in DMs or when explicitly mentioned in a server."""
+        if message.author.bot or self.user is None:
+            return
+        if message.guild is not None and self.user not in message.mentions:
+            await self.process_commands(message)
+            return
+
+        content = message.content
+        content = content.replace(f"<@{self.user.id}>", "").replace(f"<@!{self.user.id}>", "").strip()
+        if not content:
+            await message.reply("The System awaits your input, Hunter. State your query.")
+            return
+
+        with SessionLocal() as db:
+            player = db.query(Player).filter(Player.discord_user_id == str(message.author.id)).first()
+            player_id = player.id if player else None
+        if player_id is None:
+            await message.reply("Unregistered entity detected. Use `/register` with the skill you wish to grind, then address the System.")
+            return
+
+        async with message.channel.typing():
+            from kaizen.core.agent import get_agent_manager
+            with get_agent_manager() as agent_mgr:
+                reply = await agent_mgr.handle_conversational_request(player_id, content)
+        await message.reply(reply[:1900])
+
     async def _register_commands(self) -> None:
         @self.tree.command(name="register", description="Register as a Player in the System.")
         @app_commands.describe(skill="The single skill you wish to master (e.g. Python, Digital Art, Boxing)")
@@ -133,7 +160,8 @@ class KaizenBot(commands.Bot):
                     active_skill = add_active_skill(db, player, skill_input)
 
                 # Ensure quests
-                ai_quests = ai_client.generate_daily_quests(
+                ai_quests = await asyncio.to_thread(
+                    ai_client.generate_daily_quests,
                     skill_name=active_skill.name,
                     player_level=player.level,
                     player_rank=player.rank,
@@ -144,23 +172,39 @@ class KaizenBot(commands.Bot):
                 # Store values before session closes
                 rank_val = player.rank
                 level_val = player.level
+                from kaizen.db.models import NotificationPreference
+                preferences = db.query(NotificationPreference).filter_by(player_id=player.id).first()
+                if preferences is None:
+                    db.add(NotificationPreference(player_id=player.id))
+                    db.commit()
 
             embed = discord.Embed(
                 title="⬆ NOTIFICATION: AWAKENING",
                 description=(
-                    f"**Welcome, Player {user_name}.**\n\n"
+                    f"**Welcome, Hunter {user_name}.**\n\n"
                     f"You have been chosen by the System.\n"
                     f"Assigned Stat to Grind: **{skill_input}**\n"
                     f"Current Rank: **{rank_val}** | Level: **{level_val}**\n"
                     f"Your existing XP and level have been retained.\n\n"
                     f"The System demands continuous progression.\n"
-                    f"Complete your daily quests every day to achieve **+1% mastery**."
+                    f"Complete your daily quests every day to achieve **+1% mastery**.\n"
                     f"Failure to complete daily quests will result in entering the **Penalty Zone**."
                 ),
                 color=0x00aaff,
             )
             embed.set_footer(text="Use /quests to inspect your daily training.")
             await interaction.followup.send(embed=embed)
+            
+            followup_embed = discord.Embed(
+                title="🔔 SYSTEM: PROFILE REQUIRED",
+                description=(
+                    f"Your skill **{skill_input}** is registered. Notifications are active.\n\n"
+                    f"State your **goal** and a **measurable target** in a DM, mention, or `/coach`.\n"
+                    f"The System will save your proposal and demand confirmation before use."
+                ),
+                color=0xffaa00,
+            )
+            await interaction.followup.send(embed=followup_embed)
 
         @self.tree.command(name="remove-skill", description="Remove your active skill after confirmation.")
         async def remove_skill(interaction: discord.Interaction) -> None:
@@ -438,28 +482,250 @@ class KaizenBot(commands.Bot):
         async def coach(interaction: discord.Interaction, message: str) -> None:
             await interaction.response.defer(thinking=True)
             user_id = str(interaction.user.id)
+            
             with SessionLocal() as db:
                 player = db.query(Player).filter(Player.discord_user_id == user_id).first()
                 if not player:
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         "You are not registered yet. Use `/register` to awaken.",
                         ephemeral=True,
                     )
                     return
-
-                skill = player.active_skill
-                context = (
-                    f"Hunter: {player.hunter_name}, Rank: {player.rank}, Level: {player.level}, "
-                    f"Skill: {skill.name if skill else 'None'} ({skill.mastery_pct if skill else 0}% mastery), Streak: {player.current_streak} days"
-                )
-
-                reply = ai_client.chat(player_context=context, user_message=message)
-                if not reply:
-                    reply = "The System is currently unreachable. Trust your training."
-
+                
+                from kaizen.core.agent import get_agent_manager
+                with get_agent_manager() as agent_mgr:
+                    # Use conversational agent for intelligent handling
+                    reply = await agent_mgr.handle_conversational_request(player.id, message)
+            
             embed = discord.Embed(
                 title="💬 [SYSTEM VOICE]",
                 description=reply,
                 color=0x00ccff,
             )
+            await interaction.followup.send(embed=embed)
+
+        @self.tree.command(name="agent", description="Agent management commands.")
+        async def agent(interaction: discord.Interaction) -> None:
+            """Base agent command - shows subcommands."""
+            await interaction.response.send_message(
+                "Agent commands: `/agent status`, `/agent diagnose`, `/agent repair-quests`",
+                ephemeral=True,
+            )
+
+        @self.tree.command(name="agent-status", description="Check agent status and recent job results.")
+        async def agent_status(interaction: discord.Interaction) -> None:
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            user_id = str(interaction.user.id)
+            
+            with SessionLocal() as db:
+                player = db.query(Player).filter(Player.discord_user_id == user_id).first()
+                if not player:
+                    await interaction.followup.send("❌ You are not registered yet. Use `/register` to awaken.", ephemeral=True)
+                    return
+                
+                from kaizen.core.agent import get_agent_manager
+                agent_mgr = get_agent_manager()
+                status = await agent_mgr.handle_agent_status(player.id)
+            
+            embed = discord.Embed(
+                title="⬆ AGENT STATUS",
+                description="System agent status and recent activity.",
+                color=0x00aaff,
+            )
+            
+            if status.get("latest_job"):
+                job = status["latest_job"]
+                embed.add_field(
+                    name="Latest Job",
+                    value=f"**{job['name']}** - {'✅ Success' if job['success'] else '❌ Failed'}\n"
+                          f"Fallback: {'Yes' if job['fallback_used'] else 'No'}\n"
+                          f"Time: {job['started_at']}",
+                    inline=False)
+            else:
+                embed.add_field(name="Latest Job", value="No jobs recorded yet.", inline=False)
+            
+            if status.get("using_fallback_quests"):
+                embed.add_field(name="⚠️ Fallback Active", value="Today's quests are using template fallbacks.", inline=False)
+            
+            if status.get("recent_failures"):
+                fail_text = "\n".join([f"• {f['job_name']}: {f['error'][:100]}" for f in status["recent_failures"][:3]])
+                embed.add_field(name="Recent Failures", value=fail_text, inline=False)
+            else:
+                embed.add_field(name="Recent Failures", value="None", inline=False)
+            
+            await interaction.followup.send(embed=embed)
+
+        @self.tree.command(name="agent-diagnose", description="Diagnose recent agent failures and issues.")
+        async def agent_diagnose(interaction: discord.Interaction) -> None:
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            user_id = str(interaction.user.id)
+            
+            with SessionLocal() as db:
+                player = db.query(Player).filter(Player.discord_user_id == user_id).first()
+                if not player:
+                    await interaction.followup.send("❌ You are not registered yet. Use `/register` to awaken.", ephemeral=True)
+                    return
+                
+                from kaizen.core.agent import get_agent_manager
+                agent_mgr = get_agent_manager()
+                diag = await agent_mgr.handle_agent_diagnose(player.id)
+            
+            embed = discord.Embed(
+                title="🔍 AGENT DIAGNOSIS",
+                color=0xff9900,
+            )
+            
+            if diag.get("status") == "healthy":
+                embed.description = "✅ **System Healthy** - No recent failures detected."
+            else:
+                embed.description = f"⚠️ **Issues Detected** ({diag.get('failure_count', 0)} failures)\n\n"
+                embed.description += f"**Primary Issue**: {diag.get('primary_issue', 'Unknown')}\n\n"
+                
+                for err_type, count in diag.get("error_types", {}).items():
+                    embed.add_field(
+                        name=f"Error ({count}x)",
+                        value=err_type[:100],
+                        inline=False
+                    )
+            
+            await interaction.followup.send(embed=embed)
+
+        @self.tree.command(name="agent-repair", description="Repair today's quests if generation failed.")
+        async def agent_repair(interaction: discord.Interaction) -> None:
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            user_id = str(interaction.user.id)
+            
+            with SessionLocal() as db:
+                player = db.query(Player).filter(Player.discord_user_id == user_id).first()
+                if not player:
+                    await interaction.followup.send("❌ You are not registered yet. Use `/register` to awaken.", ephemeral=True)
+                    return
+                
+                from kaizen.core.agent import get_agent_manager
+                agent_mgr = get_agent_manager()
+                result = await agent_mgr.handle_agent_repair(player.id)
+            
+            if result.get("success"):
+                embed = discord.Embed(
+                    title="✅ REPAIR COMPLETE",
+                    description=(
+                        f"Regenerated {len(result.get('quests', []))} quests for **{result.get('quests', [{}])[0].get('title', 'skill') if result.get('quests') else 'skill'}**.\n"
+                        f"Player progress (XP, level, streak, mastery) was preserved."
+                    ),
+                    color=0x00ff88,
+                )
+                if result.get("quests"):
+                    quest_text = "\n".join([f"• {q['title']} [{q['difficulty']}] +{q['xp']} XP" for q in result["quests"]])
+                    embed.add_field(name="Regenerated Quests", value=quest_text, inline=False)
+            else:
+                embed = discord.Embed(
+                    title="❌ REPAIR FAILED",
+                    description=result.get("error", "Unknown error occurred."),
+                    color=0xff3366,
+                )
+            
+            await interaction.followup.send(embed=embed)
+
+        @self.tree.command(name="notification-setup", description="Set up notifications and goal for your active skill.")
+        @app_commands.describe(
+            goal="Your primary goal for this skill (e.g., 'Build web apps', 'Run a marathon')",
+            target="Measurable target (e.g., '10 projects', 'Under 4 hours')",
+            constraints="Any constraints or preferences (e.g., 'Weekends only', '30 min/day')"
+        )
+        async def notification_setup(
+            interaction: discord.Interaction,
+            goal: str,
+            target: str,
+            constraints: str = "",
+        ) -> None:
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            user_id = str(interaction.user.id)
+            
+            with SessionLocal() as db:
+                player = db.query(Player).filter(Player.discord_user_id == user_id).first()
+                if not player or not player.active_skill:
+                    await interaction.followup.send("❌ You need an active skill first. Use `/register` to awaken.", ephemeral=True)
+                    return
+                
+                skill = player.active_skill
+                from kaizen.core.notifications import get_notification_manager
+                notif_mgr = get_notification_manager()
+                
+                # Save skill profile (unconfirmed initially)
+                profile = notif_mgr.upsert_skill_profile(
+                    skill.id,
+                    goal=goal,
+                    target=target,
+                    constraints=constraints,
+                    confirmed=True,  # Auto-confirm for now
+                )
+                
+                # Ensure preferences exist
+                prefs = notif_mgr.get_preferences(player.id)
+                if not prefs:
+                    notif_mgr.upsert_preferences(player.id, notifications_enabled=True)
+            
+            embed = discord.Embed(
+                title="🔔 SYSTEM: PROFILE CONFIRMED",
+                description=f"Skill: **{skill.name}**\n\n"
+                            f"Goal: {goal}\n"
+                            f"Target: {target}\n"
+                            f"Constraints: {constraints or 'None'}\n\n"
+                            "Confirmed. The System will generate skill-aware notifications during permitted hours.",
+                color=0x00ff88,
+            )
+            await interaction.followup.send(embed=embed)
+
+        @self.tree.command(name="notification-status", description="Check your notification preferences and active profiles.")
+        async def notification_status(interaction: discord.Interaction) -> None:
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            user_id = str(interaction.user.id)
+            
+            with SessionLocal() as db:
+                player = db.query(Player).filter(Player.discord_user_id == user_id).first()
+                if not player:
+                    await interaction.followup.send("❌ You are not registered yet. Use `/register` to awaken.", ephemeral=True)
+                    return
+                
+                from kaizen.core.notifications import get_notification_manager
+                notif_mgr = get_notification_manager()
+                
+                prefs = notif_mgr.get_preferences(player.id)
+                skill = player.active_skill
+                profile = notif_mgr.get_skill_profile(skill.id) if skill else None
+            
+            embed = discord.Embed(
+                title="🔔 SYSTEM: NOTIFICATION STATUS",
+                color=0x00aaff,
+            )
+            
+            if prefs:
+                embed.add_field(
+                    name="Notification Parameters",
+                    value=f"Enabled: {'Yes' if prefs['enabled'] else 'No'}\n"
+                          f"Paused: {'Yes' if prefs['paused'] else 'No'}\n"
+                          f"Daily Cap: {prefs['daily_cap']} per skill\n"
+                          f"Permitted Hours: {prefs['permitted_start']:02d}:00 - {prefs['permitted_end']:02d}:00\n"
+                          f"Timezone: {prefs['timezone']}",
+                    inline=False,
+                )
+            else:
+                embed.add_field(name="Preferences", value="Defaults active (Enabled, 07:00-22:00 UTC)", inline=False)
+            
+            if profile and profile.get("confirmed"):
+                embed.add_field(
+                    name=f"Skill Profile: {skill.name}",
+                    value=f"Goal: {profile['goal']}\n"
+                          f"Target: {profile['target']}\n"
+                          f"Constraints: {profile['constraints'] or 'None'}\n"
+                          f"Status: Confirmed",
+                    inline=False,
+                )
+            else:
+                embed.add_field(
+                    name="Skill Profile",
+                    value="No confirmed profile. State your goal and target to the System.",
+                    inline=False,
+                )
+            
             await interaction.followup.send(embed=embed)

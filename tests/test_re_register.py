@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kaizen.core.player import add_active_skill, get_or_create_player, remove_active_skill
 from kaizen.core.quests import get_today_quests, ensure_daily_quests
-from kaizen.db.models import Base, Player
+from kaizen.db.models import Base, NotificationPreference, Player, SkillProfile
 
 
 class FakeResponse:
@@ -104,6 +104,9 @@ def test_discord_register_after_remove_commits_replacement_and_quests(monkeypatc
 
     bot = bot_module.KaizenBot()
     asyncio.run(bot._register_commands())
+    registered_names = [command.name for command in bot.tree.get_commands()]
+    assert len(registered_names) == len(set(registered_names))
+    assert {"coach", "notification-setup", "notification-status"}.issubset(registered_names)
     register = bot.tree.get_command("register")
     interaction = FakeInteraction()
     asyncio.run(register.callback(interaction, "New Skill"))
@@ -112,8 +115,13 @@ def test_discord_register_after_remove_commits_replacement_and_quests(monkeypatc
         player = db.query(Player).filter_by(discord_user_id="445566").one()
         assert player.active_skill.name == "New Skill"
         assert len(get_today_quests(db, player.id)) == 3
+        # Registration enables notifications but must not invent and confirm the
+        # player's goal/target. Those are collected conversationally by the agent.
+        preference = db.query(NotificationPreference).filter_by(player_id=player.id).one()
+        assert preference.notifications_enabled is True
+        assert db.query(SkillProfile).filter_by(skill_id=player.active_skill.id).count() == 0
 
-    assert len(interaction.followup.sent) == 1
+    assert len(interaction.followup.sent) >= 1
     assert "New Skill" in interaction.followup.sent[0][1]["embed"].description
     engine.dispose()
 

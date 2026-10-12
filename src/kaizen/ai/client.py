@@ -404,5 +404,46 @@ class AIClient:
         prompt = f"Hunter Profile:\n{player_context}\n\nHunter: {user_message}"
         return self._generate_text(prompt, system_instruction)
 
+    def chat_completion_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Return the assistant message from an OpenAI-compatible tool call request."""
+        if not self.is_available:
+            return None
+
+        try:
+            model = self._get_model()
+            if not model:
+                return None
+            response = self._client.post(
+                f"{self._base_url}/chat/completions",
+                headers=self._headers(),
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "tools": tools,
+                    "tool_choice": "auto",
+                    "temperature": 0.2,
+                    "max_tokens": 800,
+                },
+                timeout=30,
+            )
+            if response.status_code != 200:
+                logger.warning(
+                    "FreeLLM tool chat returned HTTP %s: %s",
+                    response.status_code,
+                    response.text[:240],
+                )
+                return None
+            choices = response.json().get("choices", [])
+            if not choices or not isinstance(choices[0].get("message"), dict):
+                return None
+            return choices[0]["message"]
+        except Exception as exc:
+            logger.warning("FreeLLM tool chat failed: %s", exc)
+            return None
+
 
 ai_client = AIClient()

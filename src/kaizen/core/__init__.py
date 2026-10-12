@@ -21,6 +21,18 @@ from kaizen.core.quests import (
     generate_fallback_quests,
     get_today_quests,
 )
+from kaizen.core.memory import (
+    MemoryManager,
+    get_memory_manager,
+)
+from kaizen.core.notifications import (
+    NotificationManager,
+    get_notification_manager,
+)
+from kaizen.core.agent import (
+    AgentManager,
+    get_agent_manager,
+)
 
 __all__ = [
     "XpGainResult",
@@ -40,4 +52,10 @@ __all__ = [
     "ensure_daily_quests",
     "generate_fallback_quests",
     "get_today_quests",
+    "MemoryManager",
+    "get_memory_manager",
+    "NotificationManager",
+    "get_notification_manager",
+    "AgentManager",
+    "get_agent_manager",
 ]

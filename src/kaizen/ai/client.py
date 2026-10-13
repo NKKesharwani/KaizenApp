@@ -162,6 +162,9 @@ class AIClient:
         player_level: int,
         player_rank: str,
         recent_notes: str | None = None,
+        goal: str | None = None,
+        target: str | None = None,
+        constraints: str | None = None,
     ) -> list[dict] | None:
         """Generate 3-4 AI-driven daily quests for the player.
 
@@ -179,6 +182,14 @@ class AIClient:
             Quest titles should be immersive and memorable, but descriptions must
             remain practical, realistic, unambiguous, and achievable in real life.
             Do not sacrifice logic or usability for dramatic language.
+
+            CRITICAL ALIGNMENT:
+            Quests MUST be aligned with the hunter's stated GOAL and TARGET.
+            If the TARGET specifies a precise time, value, or outcome, every quest
+            must support that exact target. Never generate contradictory quests.
+            For example, if TARGET is "Wake up at 6:30 AM IST", do NOT generate a
+            quest to wake at 6:00 AM or any other time. All quests should enable
+            the hunter to achieve the stated target.
 
             YOUR TASK:
             Generate exactly 3 distinct daily quests for the single skill provided
@@ -309,6 +320,9 @@ class AIClient:
             SKILL: {skill_name}
             HUNTER LEVEL: {player_level}
             HUNTER RANK: {player_rank}
+            GOAL: {goal or 'Improve skill'}
+            TARGET: {target or 'Reach mastery'}
+            CONSTRAINTS: {constraints or 'None'}
 
         """
 
@@ -327,6 +341,9 @@ class AIClient:
 
             First, identify three different behavioral dimensions of the specified
             skill. Use those dimensions to create complementary quests.
+
+            The quests MUST BE ALIGNED with GOAL and TARGET. Do NOT contradict the target time/value.
+            If TARGET is to wake up at 6:30 AM, never generate quests to wake at 6:00 AM or different time.
 
             For each quest, define:
             1. One distinct primary objective.

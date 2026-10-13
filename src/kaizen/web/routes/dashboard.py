@@ -49,10 +49,18 @@ def _dashboard_context(request: Request, db: Session, player: Player | None) -> 
     skill = player.active_skill
     quests = get_today_quests(db, player.id, today)
     if skill and not quests:
+        from kaizen.db.models import SkillProfile
+        profile = db.query(SkillProfile).filter_by(skill_id=skill.id).first() if skill else None
+        goal = profile.goal if profile else None
+        target = profile.target if profile else None
+        constraints = profile.constraints if profile else None
         generated = ai_client.generate_daily_quests(
             skill_name=skill.name,
             player_level=player.level,
             player_rank=player.rank,
+            goal=goal,
+            target=target,
+            constraints=constraints,
         )
         quests = ensure_daily_quests(db, player, quests_data=generated, target_date=today)
         db.commit()
@@ -111,10 +119,20 @@ async def api_register(
         return RedirectResponse(url="/", status_code=303)
 
     active_skill = player.active_skill
+    from kaizen.db.models import SkillProfile
+    profile = None
+    if active_skill:
+        profile = db.query(SkillProfile).filter_by(skill_id=active_skill.id).first()
+    goal = profile.goal if profile else None
+    target = profile.target if profile else None
+    constraints = profile.constraints if profile else None
     quests = ai_client.generate_daily_quests(
         skill_name=active_skill.name if active_skill else skill_name,
         player_level=player.level,
         player_rank=player.rank,
+        goal=goal,
+        target=target,
+        constraints=constraints,
     )
     ensure_daily_quests(db, player, quests_data=quests)
     db.commit()

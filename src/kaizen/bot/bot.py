@@ -845,4 +845,26 @@ class KaizenBot(commands.Bot):
                     inline=False,
                 )
             
+            # Show pending notifications
+            with SessionLocal() as db:
+                from kaizen.core.notifications import get_notification_manager
+                notif_mgr = get_notification_manager()
+                pending = notif_mgr.get_pending_notifications(player.id)
+            
+            if pending:
+                pending_text = "\n".join(
+                    f"• {n.notification_type} at {n.scheduled_at.strftime('%H:%M UTC')}: {n.message[:60]}..."
+                    for n in pending[:5]
+                )
+                if len(pending) > 5:
+                    pending_text += f"\n... and {len(pending) - 5} more"
+            else:
+                pending_text = "None scheduled"
+            
+            embed.add_field(
+                name=f"Pending Notifications ({len(pending)})",
+                value=pending_text,
+                inline=False,
+            )
+            
             await interaction.followup.send(embed=embed)

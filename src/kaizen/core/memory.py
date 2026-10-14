@@ -77,7 +77,7 @@ class MemoryManager:
             player_id=player_id,
             role=role,
             content=content,
-            token_count=token_count,
+            context_tokens=token_count,
             timestamp=datetime.utcnow(),
         )
         self.session.add(turn)

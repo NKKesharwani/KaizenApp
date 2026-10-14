@@ -11,6 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from kaizen.ai.client import ai_client
 from kaizen.bot.bot import KaizenBot
 from kaizen.config import settings
+from kaizen.core.agent import get_agent_manager
 from kaizen.core.progress import check_and_apply_penalty
 from kaizen.db.models import Player
 from kaizen.db.session import SessionLocal
@@ -112,10 +113,19 @@ async def penalty_check_job() -> None:
 
 
 async def reminder_job() -> None:
-    """Send reminders (currently just logs). In future could DM users."""
-    logger.info("Reminder job: time to train!")
-    # For now we just log; could extend to send DMs via bot.
-    pass
+    """Run the agent's reminder job: generate daily notifications."""
+    logger.info("Running reminder job: generating daily notifications.")
+    with get_agent_manager() as agent_mgr:
+        result = await agent_mgr.run_reminder_job()
+    logger.info(f"Reminder job completed: {result}")
+
+
+async def process_outbox_job() -> None:
+    """Process notification outbox frequently to deliver on time."""
+    with get_agent_manager() as agent_mgr:
+        sent = await agent_mgr.process_notification_outbox()
+    if sent:
+        logger.info(f"Outbox processor sent {sent} notifications")
 
 
 def setup_scheduler() -> AsyncIOScheduler:
@@ -126,8 +136,10 @@ def setup_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(
         penalty_check_job, "cron", hour=settings.DAILY_REMINDER_HOUR, minute=0
     )
-    # Reminder at 9am (or whatever hour)
+    # Daily notification generation at 9am
     scheduler.add_job(reminder_job, "cron", hour=9, minute=0)
+    # Frequent outbox processing (every minute)
+    scheduler.add_job(process_outbox_job, "interval", minutes=1)
     return scheduler
 
 

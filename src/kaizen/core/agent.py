@@ -79,9 +79,106 @@ class AgentManager:
                     "daily_cap": {"type": "integer", "minimum": 1, "maximum": 3},
                 },
             ),
+            tool("get_pending_notifications", "Read all pending/scheduled notifications for the player's skills.", {}),
             tool("get_today_quests", "Read today's quests and completion state.", {}),
             tool("repair_today_quests", "Regenerate today's quests while preserving all player progress. Only call when the player asks for repair/regeneration.", {}),
         ]
+
+    # ==================== Token Management & Context Compaction ====================
+
+    MAX_CONTEXT_TOKENS = 20000  # 20K token limit before compaction
+    COMPACTION_RESERVE_TOKENS = 4000  # Reserve tokens for system prompt, tools, response
+
+    def _estimate_tokens(self, text: str) -> int:
+        """Rough token estimation: ~4 chars per token for English."""
+        return len(text) // 4
+
+    def _count_messages_tokens(self, messages: list[dict]) -> int:
+        """Estimate total tokens in a message list."""
+        total = 0
+        for msg in messages:
+            total += self._estimate_tokens(msg.get("content", ""))
+            # Add overhead for role, tool calls, etc.
+            total += 10
+        return total
+
+    async def _compact_conversation_if_needed(self, player_id: int, messages: list[dict]) -> list[dict]:
+        """If context exceeds token limit, extract memories, summarize, and return compacted messages."""
+        total_tokens = self._count_messages_tokens(messages)
+        if total_tokens <= self.MAX_CONTEXT_TOKENS:
+            return messages
+
+        logger.info(f"Context compaction triggered for player {player_id}: {self._count_messages_tokens(messages)} tokens")
+
+        with SessionLocal() as db:
+            # Get full conversation history
+            full_history = (
+                db.query(ConversationHistory)
+                .filter_by(player_id=player_id)
+                .order_by(ConversationHistory.timestamp.asc())
+                .all()
+            )
+
+            if len(full_history) < 10:
+                # Not enough history to compact meaningfully
+                return messages
+
+            # Build full conversation text for memory extraction
+            conversation_text = "\n".join(f"{h.role}: {h.content}" for h in full_history)
+
+            # Extract memories from full conversation
+            memory = self.memory
+            await memory.extract_memories(player_id, "Conversation compaction", conversation_text)
+
+            # Summarize the conversation
+            summary_text = await memory.summarize_history(player_id)
+            if summary_text:
+                # Create summary record
+                first_turn = full_history[0]
+                last_turn = full_history[-1]
+                memory.create_summary(
+                    player_id=player_id,
+                    turns=[],  # Not used in current implementation
+                    summary_text=summary_text,
+                    token_count=self._estimate_tokens(summary_text),
+                    covered_from=first_turn.timestamp,
+                    covered_to=last_turn.timestamp,
+                )
+
+            # Delete old conversation history (keep only last 5 turns)
+            keep_count = 5
+            old_turns = full_history[:-keep_count]
+            for turn in old_turns:
+                db.delete(turn)
+            db.commit()
+
+            # Build compacted messages: system + summary + recent turns
+            compacted = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are the SYSTEM from Solo Leveling. A cold, mechanical, slightly ominous AI entity "
+                        "that monitors the hunter's progression. You do not coddle. You do not encourage. "
+                        "You observe, record, and assign. Your voice is brief, analytical, and intimidating. "
+                        "You may mock failure. You never break character.\n\n"
+                        f"Previous conversation summary: {summary_text}\n\n"
+                        "Available tools: status, quests, notification settings, skill goal profiles, safe quest repair. "
+                        "Call tools to perform requested actions; never claim a change happened unless a tool confirms it. "
+                        "For a new skill profile, collect the hunter's stated goal and measurable target, "
+                        "call propose_skill_profile, show the proposed values, and demand explicit confirmation. "
+                        "Only call confirm_skill_profile after the hunter explicitly agrees. "
+                        "Never invent goals/targets or claim notification delivery. "
+                        "If information is missing, ask a brief follow-up. "
+                        "Do not modify XP, level, streak, mastery, rank, or quest completion."
+                    ),
+                }
+            ]
+            # Add recent turns
+            recent_turns = full_history[-keep_count:]
+            for turn in recent_turns:
+                compacted.append({"role": turn.role, "content": turn.content})
+
+            return compacted
 
     async def _execute_conversation_tool(
         self,
@@ -203,6 +300,14 @@ class AgentManager:
                     for q in quests
                 ]}
 
+            if name == "get_pending_notifications":
+                pending = self._get_notifications().get_pending_notifications(player_id)
+                return {"ok": True, "pending": [
+                    {"id": n.id, "skill_id": n.skill_id, "type": n.notification_type,
+                     "scheduled_at": n.scheduled_at.isoformat(), "message": n.message}
+                    for n in pending
+                ]}
+
         if name == "repair_today_quests":
             return await self.repair_today_quests(player_id)
         return {"ok": False, "error": f"Unknown tool: {name}"}
@@ -238,29 +343,32 @@ class AgentManager:
                 db.add(NotificationPreference(player_id=player_id))
                 db.commit()
 
+        system_prompt = (
+            "You are the SYSTEM from Solo Leveling. A cold, mechanical, slightly ominous AI entity "
+            "that monitors the hunter's progression. You do not coddle. You do not encourage. "
+            "You observe, record, and assign. Your voice is brief, analytical, and intimidating. "
+            "You may mock failure. You never break character.\n\n"
+            "Hunter context: " + context + "\n\n"
+            "Available tools: status, quests, notification settings, skill goal profiles, safe quest repair. "
+            "Call tools to perform requested actions; never claim a change happened unless a tool confirms it. "
+            "For a new skill profile, collect the hunter's stated goal and measurable target, "
+            "call propose_skill_profile, show the proposed values, and demand explicit confirmation. "
+            "Only call confirm_skill_profile after the hunter explicitly agrees. "
+            "Never invent goals/targets or claim notification delivery. "
+            "If information is missing, ask a brief follow-up. "
+            "Do not modify XP, level, streak, mastery, rank, or quest completion."
+        )
+
         messages: list[dict] = [
-            {
-                "role": "system",
-                "content": (
-                    "You are the SYSTEM from Solo Leveling. A cold, mechanical, slightly ominous AI entity "
-                    "that monitors the hunter's progression. You do not coddle. You do not encourage. "
-                    "You observe, record, and assign. Your voice is brief, analytical, and intimidating. "
-                    "You may mock failure. You never break character.\n\n"
-                    "Hunter context: " + context + "\n\n"
-                    "Available tools: status, quests, notification settings, skill goal profiles, safe quest repair. "
-                    "Call tools to perform requested actions; never claim a change happened unless a tool confirms it. "
-                    "For a new skill profile, collect the hunter's stated goal and measurable target, "
-                    "call propose_skill_profile, show the proposed values, and demand explicit confirmation. "
-                    "Only call confirm_skill_profile after the hunter explicitly agrees. "
-                    "Never invent goals/targets or claim notification delivery. "
-                    "If information is missing, ask a brief follow-up. "
-                    "Do not modify XP, level, streak, mastery, rank, or quest completion."
-                ),
-            }
+            {"role": "system", "content": system_prompt}
         ]
         for turn in reversed(prior):
             messages.append({"role": turn.role, "content": turn.content})
         messages.append({"role": "user", "content": user_message})
+
+        # Check and compact if token limit exceeded
+        messages = await self._compact_conversation_if_needed(player_id, messages)
+
         tools = self._conversation_tool_specs()
         import re
         allow_confirmation = bool(re.search(
@@ -311,10 +419,16 @@ class AgentManager:
         else:
             reply = "I could not complete that request in one interaction. Please clarify what you want me to do."
 
+        # Save conversation turns and extract memories
         with SessionLocal() as db:
-            db.add(ConversationHistory(player_id=player_id, role="user", content=user_message))
-            db.add(ConversationHistory(player_id=player_id, role="assistant", content=reply))
+            self.memory.add_turn(player_id, "user", user_message)
+            self.memory.add_turn(player_id, "assistant", reply)
+            # Extract long-term memories from this turn
+            await self.memory.extract_memories(player_id, user_message, reply)
+            # Check if summarization is needed
+            self.memory.maybe_summarize(player_id)
             db.commit()
+
         return reply
     
     def close(self):

@@ -153,6 +153,16 @@ class NotificationManager:
             with MemoryManager() as mem:
                 context = self._build_ai_context(player.id, skill.id)
             
+            # Build skill profile context
+            profile_context = ""
+            if skill_profile:
+                profile_context = (
+                    f"\nSKILL PROFILE:\n"
+                    f"  Goal: {skill_profile.get('goal', 'Not set')}\n"
+                    f"  Target: {skill_profile.get('target', 'Not set')}\n"
+                    f"  Constraints: {skill_profile.get('constraints', 'None')}\n"
+                )
+            
             # Build prompt for notification planning
             system_prompt = (
                 "You are the Kaizen Notification Planner. Plan motivational notifications "
@@ -170,7 +180,7 @@ class NotificationManager:
             )
             
             context = self._build_notification_context(player_id, skill_id)
-            prompt = f"{context}\n\nGenerate today's notification plan."
+            prompt = f"{context}{profile_context}\n\nGenerate today's notification plan."
             
             text = await ai_client._generate_text(
                 prompt=prompt,

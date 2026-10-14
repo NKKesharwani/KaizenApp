@@ -58,13 +58,23 @@ async def daily_reset_job() -> None:
             if not player.active_skill:
                 continue
             # Generate new quests for today (overwrites any existing)
-            skill_name = player.active_skill.name
+            skill = player.active_skill
+            skill_name = skill.name
+            # Load profile for alignment
+            from kaizen.db.models import SkillProfile
+            profile = db.query(SkillProfile).filter_by(skill_id=skill.id).first()
+            goal = profile.goal if profile else None
+            target = profile.target if profile else None
+            constraints = profile.constraints if profile else None
             # Run synchronous AI call in thread pool to avoid blocking event loop
             ai_quests = await asyncio.to_thread(
                 ai_client.generate_daily_quests,
                 skill_name=skill_name,
                 player_level=player.level,
                 player_rank=player.rank,
+                goal=goal,
+                target=target,
+                constraints=constraints,
             )
             # Remove old quests for today
             db.query(

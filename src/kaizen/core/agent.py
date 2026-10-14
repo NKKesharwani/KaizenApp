@@ -378,6 +378,11 @@ class AgentManager:
             skill_name = skill.name
             player_level = player.level
             player_rank = player.rank
+            # Fetch skill profile for goal alignment
+            profile = db.query(SkillProfile).filter_by(skill_id=skill.id).first()
+            goal = profile.goal if profile else None
+            target = profile.target if profile else None
+            constraints = profile.constraints if profile else None
             
             # Store before state
             before = {
@@ -401,6 +406,9 @@ class AgentManager:
                     skill_name=skill.name,
                     player_level=player.level,
                     player_rank=player.rank,
+                    goal=goal,
+                    target=target,
+                    constraints=constraints,
                 )
                 new_quests = ensure_daily_quests(db, player, quests_data=ai_quests)
                 
@@ -489,13 +497,23 @@ class AgentManager:
                 if not player.active_skill:
                     continue
                 try:
-                    skill_name = player.active_skill.name
+                    skill = player.active_skill
+                    skill_name = skill.name
+                    # Load profile for goal alignment
+                    from kaizen.db.models import SkillProfile
+                    profile = db.query(SkillProfile).filter_by(skill_id=skill.id).first()
+                    goal = profile.goal if profile else None
+                    target = profile.target if profile else None
+                    constraints = profile.constraints if profile else None
                     # Run synchronous AI call in thread pool to avoid blocking event loop
                     ai_quests = await asyncio.to_thread(
                         ai_client.generate_daily_quests,
                         skill_name=skill_name,
                         player_level=player.level,
                         player_rank=player.rank,
+                        goal=goal,
+                        target=target,
+                        constraints=constraints,
                     )
                     # Remove old quests for today
                     db.query(Quest).filter(

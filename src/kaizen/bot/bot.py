@@ -260,6 +260,9 @@ class KaizenBot(commands.Bot):
                     skill_name=active_skill.name,
                     player_level=player.level,
                     player_rank=player.rank,
+                    goal=None,
+                    target=None,
+                    constraints=None,
                 )
                 ensure_daily_quests(db, player, quests_data=ai_quests)
                 db.commit()
@@ -366,10 +369,20 @@ class KaizenBot(commands.Bot):
                 today_quests = get_today_quests(db, player.id)
                 if not today_quests:
                     skill_name = player.active_skill.name if player.active_skill else "General Mastery"
+                    from kaizen.db.models import SkillProfile
+                    profile = None
+                    if player.active_skill:
+                        profile = db.query(SkillProfile).filter_by(skill_id=player.active_skill.id).first()
+                    goal = profile.goal if profile else None
+                    target = profile.target if profile else None
+                    constraints = profile.constraints if profile else None
                     ai_quests = ai_client.generate_daily_quests(
                         skill_name=skill_name,
                         player_level=player.level,
                         player_rank=player.rank,
+                        goal=goal,
+                        target=target,
+                        constraints=constraints,
                     )
                     today_quests = ensure_daily_quests(db, player, quests_data=ai_quests)
                     db.commit()
@@ -426,6 +439,12 @@ class KaizenBot(commands.Bot):
                 skill_name = active_skill.name
                 player_level = player.level
                 player_rank = player.rank
+                # Load profile for alignment
+                from kaizen.db.models import SkillProfile
+                profile = db.query(SkillProfile).filter_by(skill_id=active_skill.id).first()
+                goal = profile.goal if profile else None
+                target = profile.target if profile else None
+                constraints = profile.constraints if profile else None
                 before = (
                     player.current_xp,
                     player.level,
@@ -444,6 +463,9 @@ class KaizenBot(commands.Bot):
                     skill_name=skill_name,
                     player_level=player_level,
                     player_rank=player_rank,
+                    goal=goal,
+                    target=target,
+                    constraints=constraints,
                 )
                 quests_for_today = ensure_daily_quests(db, player, quests_data=generated)
 

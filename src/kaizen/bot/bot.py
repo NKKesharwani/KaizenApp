@@ -2,6 +2,7 @@
 
 import logging
 import asyncio
+import json
 from datetime import date
 from typing import Optional
 
@@ -85,9 +86,11 @@ class KaizenBot(commands.Bot):
 
     def __init__(self) -> None:
         intents = discord.Intents.default()
+        intents.guild_messages = True
+        intents.dm_messages = True
         intents.message_content = True
         intents.members = True  # Required for privileged intents
-        super().__init__(command_prefix="!", intents=intents)
+        super().__init__(command_prefix="!", intents=intents, enable_debug_events=True)
 
     async def setup_hook(self) -> None:
         """Register application commands."""
@@ -104,32 +107,124 @@ class KaizenBot(commands.Bot):
         except Exception as e:
             logger.warning("Failed to sync slash commands: %s", e)
 
-    async def on_message(self, message: discord.Message) -> None:
-        """Accept ordinary chat in DMs or when explicitly mentioned in a server."""
-        if message.author.bot or self.user is None:
+    async def on_ready(self) -> None:
+        logger.info(
+            "Discord ready as %s (id=%s); guild_messages=%s message_content=%s",
+            self.user,
+            self.user.id if self.user else None,
+            self.intents.guild_messages,
+            self.intents.message_content,
+        )
+
+    async def on_socket_raw_receive(self, payload: str | bytes | dict) -> None:
+        """Trace bot-authored Gateway messages to diagnose bot-to-bot mentions."""
+        if isinstance(payload, (str, bytes, bytearray)):
+            try:
+                payload = json.loads(payload)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return
+        if not isinstance(payload, dict):
             return
-        if message.guild is not None and self.user not in message.mentions:
+        if payload.get("t") != "MESSAGE_CREATE":
+            return
+        data = payload.get("d", {})
+        author = data.get("author", {})
+        if author.get("bot"):
+            logger.info(
+                "Gateway received bot message: author_id=%s channel_id=%s message_id=%s "
+                "mentions=%s content_length=%s webhook_id=%s",
+                author.get("id"),
+                data.get("channel_id"),
+                data.get("id"),
+                [mention.get("id") for mention in data.get("mentions", [])],
+                len(data.get("content") or ""),
+                data.get("webhook_id"),
+            )
+
+    async def on_message(self, message: discord.Message) -> None:
+        """Accept ordinary chat from users and only explicitly-mentioned bot messages."""
+        if self.user is None or message.author.id == self.user.id:
+            return
+
+        bot_id = self.user.id
+        mentioned_ids = {user.id for user in message.mentions}
+        raw_mentioned_ids = set(getattr(message, "raw_mentions", ()))
+        if message.author.bot:
+            logger.info(
+                "on_message received bot message: author_id=%s channel_id=%s message_id=%s "
+                "mentions=%s raw_mentions=%s content_length=%s",
+                message.author.id,
+                message.channel.id,
+                message.id,
+                sorted(mentioned_ids),
+                sorted(raw_mentioned_ids),
+                len(message.content or ""),
+            )
+        mention_tokens = (f"<@{bot_id}>", f"<@!{bot_id}>")
+        is_mentioned = (
+            bot_id in mentioned_ids
+            or bot_id in raw_mentioned_ids
+            or any(token in message.content for token in mention_tokens)
+        )
+
+        # Ignore bot chatter unless it explicitly addresses this bot. This also
+        # prevents loops when other bots talk to each other in the channel.
+        if message.author.bot and not is_mentioned:
+            return
+        if message.author.bot and is_mentioned:
+            # Bot mentioned us: handle conversationaly
+            pass  # fall through to conversational handling below
+        elif message.guild is not None and not is_mentioned:
             await self.process_commands(message)
             return
 
+        if message.author.bot:
+            logger.info(
+                "Received bot mention: author_id=%s channel_id=%s message_id=%s content_present=%s",
+                message.author.id,
+                message.channel.id,
+                message.id,
+                bool(message.content),
+            )
+
         content = message.content
-        content = content.replace(f"<@{self.user.id}>", "").replace(f"<@!{self.user.id}>", "").strip()
+        for token in mention_tokens:
+            content = content.replace(token, "")
+        content = content.strip()
         if not content:
-            await message.reply("The System awaits your input, Hunter. State your query.")
+            await message.channel.send(
+                "The System awaits your input, Hunter. State your query.",
+                reference=message,
+                mention_author=False,
+            )
             return
 
-        with SessionLocal() as db:
-            player = db.query(Player).filter(Player.discord_user_id == str(message.author.id)).first()
-            player_id = player.id if player else None
-        if player_id is None:
-            await message.reply("Unregistered entity detected. Use `/register` with the skill you wish to grind, then address the System.")
-            return
-
-        async with message.channel.typing():
-            from kaizen.core.agent import get_agent_manager
-            with get_agent_manager() as agent_mgr:
-                reply = await agent_mgr.handle_conversational_request(player_id, content)
-        await message.reply(reply[:1900])
+        try:
+            with SessionLocal() as db:
+                player = db.query(Player).filter(Player.discord_user_id == str(message.author.id)).first()
+                player_id = player.id if player else None
+            if player_id is None:
+                reply = (
+                    "Unregistered entity detected. Use `/register` with the skill you wish to grind, "
+                    "then address the System."
+                )
+            else:
+                async with message.channel.typing():
+                    from kaizen.core.agent import get_agent_manager
+                    with get_agent_manager() as agent_mgr:
+                        reply = await agent_mgr.handle_conversational_request(player_id, content)
+            await message.channel.send(
+                reply[:1900],
+                reference=message,
+                mention_author=False,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to handle mention: author_id=%s channel_id=%s message_id=%s",
+                message.author.id,
+                message.channel.id,
+                message.id,
+            )
 
     async def _register_commands(self) -> None:
         @self.tree.command(name="register", description="Register as a Player in the System.")

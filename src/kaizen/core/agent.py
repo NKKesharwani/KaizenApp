@@ -701,7 +701,7 @@ class AgentManager:
         results = {"notifications_sent": 0, "errors": 0}
         
         with SessionLocal() as db:
-            players = db.query(Player).filter(Player.current_streak > 0).all()
+            players = db.query(Player).all()
             for player in players:
                 try:
                     # Check if notifications are enabled

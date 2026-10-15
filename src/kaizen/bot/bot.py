@@ -211,7 +211,7 @@ class KaizenBot(commands.Bot):
             else:
                 async with message.channel.typing():
                     from kaizen.core.agent import get_agent_manager
-                    with get_agent_manager() as agent_mgr:
+                    with get_agent_manager(bot=self) as agent_mgr:
                         reply = await agent_mgr.handle_conversational_request(player_id, content)
             await message.channel.send(
                 reply[:1900],
@@ -610,7 +610,7 @@ class KaizenBot(commands.Bot):
                     return
                 
                 from kaizen.core.agent import get_agent_manager
-                with get_agent_manager() as agent_mgr:
+                with get_agent_manager(bot=self) as agent_mgr:
                     # Use conversational agent for intelligent handling
                     reply = await agent_mgr.handle_conversational_request(player.id, message)
             
@@ -641,7 +641,7 @@ class KaizenBot(commands.Bot):
                     return
                 
                 from kaizen.core.agent import get_agent_manager
-                agent_mgr = get_agent_manager()
+                agent_mgr = get_agent_manager(bot=self)
                 status = await agent_mgr.handle_agent_status(player.id)
             
             embed = discord.Embed(
@@ -684,7 +684,7 @@ class KaizenBot(commands.Bot):
                     return
                 
                 from kaizen.core.agent import get_agent_manager
-                agent_mgr = get_agent_manager()
+                agent_mgr = get_agent_manager(bot=self)
                 diag = await agent_mgr.handle_agent_diagnose(player.id)
             
             embed = discord.Embed(
@@ -719,7 +719,7 @@ class KaizenBot(commands.Bot):
                     return
                 
                 from kaizen.core.agent import get_agent_manager
-                agent_mgr = get_agent_manager()
+                agent_mgr = get_agent_manager(bot=self)
                 result = await agent_mgr.handle_agent_repair(player.id)
             
             if result.get("success"):

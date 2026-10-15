@@ -19,6 +19,9 @@ from kaizen.web.app import app as fastapi_app
 
 logger = logging.getLogger(__name__)
 
+# Global bot reference for scheduler jobs
+_bot_instance = None
+
 
 def setup_logging() -> None:
     logging.basicConfig(
@@ -45,7 +48,9 @@ async def run_dashboard() -> None:
 
 async def run_bot() -> None:
     """Run the Discord bot."""
+    global _bot_instance
     bot = KaizenBot()
+    _bot_instance = bot
     await bot.start(settings.DISCORD_TOKEN)
 
 
@@ -115,14 +120,14 @@ async def penalty_check_job() -> None:
 async def reminder_job() -> None:
     """Run the agent's reminder job: generate daily notifications."""
     logger.info("Running reminder job: generating daily notifications.")
-    with get_agent_manager() as agent_mgr:
+    with get_agent_manager(bot=_bot_instance) as agent_mgr:
         result = await agent_mgr.run_reminder_job()
     logger.info(f"Reminder job completed: {result}")
 
 
 async def process_outbox_job() -> None:
     """Process notification outbox frequently to deliver on time."""
-    with get_agent_manager() as agent_mgr:
+    with get_agent_manager(bot=_bot_instance) as agent_mgr:
         sent = await agent_mgr.process_notification_outbox()
     if sent:
         logger.info(f"Outbox processor sent {sent} notifications")

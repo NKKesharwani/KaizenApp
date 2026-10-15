@@ -23,11 +23,12 @@ logger = logging.getLogger(__name__)
 class AgentManager:
     """Manages recovery agent, motivational notification agent, and conversational agent."""
     
-    def __init__(self, session: Session | None = None):
+    def __init__(self, session: Session | None = None, bot=None):
         self.session = session or SessionLocal()
         self._owns_session = session is None
         self.memory = get_memory_manager(self.session)
         self.notifications = None  # Lazy init
+        self.bot = bot  # Discord bot reference for sending DMs
     
     # ==================== Conversational Agent ====================
 
@@ -442,9 +443,16 @@ class AgentManager:
         self.close()
         return False
     
+    def __aenter__(self):
+        return self
+    
+    def __aexit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+    
     def _get_notifications(self):
         if self.notifications is None:
-            self.notifications = get_notification_manager(self.session)
+            self.notifications = get_notification_manager(self.session, bot=self.bot)
         return self.notifications
 
     # ==================== Recovery Agent ====================
@@ -784,6 +792,6 @@ class AgentManager:
         return await self.repair_today_quests(player_id)
 
 
-def get_agent_manager(session: Session | None = None) -> AgentManager:
+def get_agent_manager(session: Session | None = None, bot=None) -> AgentManager:
     """Get an agent manager instance."""
-    return AgentManager(session)
+    return AgentManager(session, bot=bot)

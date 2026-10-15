@@ -25,9 +25,10 @@ logger = logging.getLogger(__name__)
 class NotificationManager:
     """Manages skill-aware motivational notifications with AI-powered scheduling."""
     
-    def __init__(self, session: Session | None = None):
+    def __init__(self, session: Session | None = None, bot=None):
         self.session = session or SessionLocal()
         self._owns_session = True
+        self.bot = bot  # Discord bot reference for sending DMs
     
     def close(self):
         if self._owns_session and self.session:
@@ -149,7 +150,7 @@ class NotificationManager:
             skill_profile = self.get_skill_profile(skill.id)
             
             # Get memory context
-            from kaizen.core.memory import get_memory_manager
+            from kaizen.core.memory import get_memory_manager, MemoryManager
             with MemoryManager() as mem:
                 context = self._build_ai_context(player.id, skill.id)
             
@@ -179,12 +180,14 @@ class NotificationManager:
                 "Context will be provided below."
             )
             
+            from datetime import datetime
+            today = datetime.now().date().isoformat()
             context = self._build_notification_context(player_id, skill_id)
-            prompt = f"{context}{profile_context}\n\nGenerate today's notification plan."
+            prompt = f"TODAY'S DATE: {today}\n\n{context}{profile_context}\n\nGenerate today's notification plan for {today}."
             
-            text = await ai_client._generate_text(
+            text = ai_client._generate_text(
                 prompt=prompt,
-                system_instruction=system_instruction,
+                system_instruction=system_prompt,
             )
             
             if not text:
@@ -233,7 +236,7 @@ class NotificationManager:
             ]
             
             # Add memory context
-            from kaizen.core.memory import get_memory_manager
+            from kaizen.core.memory import get_memory_manager, MemoryManager
             with MemoryManager() as mem:
                 mem_ctx = mem.get_context_for_ai(player_id)
             
@@ -251,44 +254,50 @@ class NotificationManager:
     async def schedule_daily_notifications(self, player_id: int) -> list:
         """Generate and queue notifications for all active skills for today."""
         with SessionLocal() as db:
-            from kaizen.db.models import Skill, SkillProfile
-            
+            from kaizen.db.models import Skill, SkillProfile, Player
+
+            # Get player
+            player = db.query(Player).filter(Player.id == player_id).first()
+            if not player:
+                return []
+
             # Get all active skills with profiles
             skills = (
-                self.session.query(Skill)
+                db.query(Skill)
                 .join(SkillProfile, Skill.id == SkillProfile.skill_id)
-                .filter(Skill.player_id == skill_id)
+                .filter(Skill.player_id == player_id)
                 .filter(SkillProfile.confirmed == True)
                 .all()
             )
-            
-            if not skill:
+
+            if not skills:
                 return []
-            
+
             today = datetime.now(timezone.utc).date()
             results = []
-            
+
             for skill in skills:
                 plan = await self.generate_notification_plan(player.id, skill.id, datetime.now())
                 if not plan:
                     continue
-                
+
                 for notif in plan:
-                    # Create outbox entry
+                    # Parse time_utc string to datetime
+                    scheduled_at = datetime.fromisoformat(notif["time_utc"].replace('Z', '+00:00'))
                     outbox = NotificationOutbox(
                         player_id=player.id,
                         skill_id=skill.id,
-                        scheduled_at=notif["time_utc"],
+                        scheduled_at=scheduled_at,
                         message=notif["message"],
                         notification_type=notif["type"],
-                        idempotency_key=f"{player.id}_{skill.id}_{notif['type']}_{notif['time_utc'].date()}",
+                        idempotency_key=f"{player.id}_{skill.id}_{notif['type']}_{scheduled_at.date()}",
                     )
-                    self.session.add(outbox)
+                    db.add(outbox)
                     results.append(outbox)
-            
-            self.session.commit()
+
+            db.commit()
             return results
-    
+
     async def process_outbox(self) -> int:
         """Process pending notifications in the outbox."""
         sent = 0
@@ -339,18 +348,30 @@ class NotificationManager:
             return sent
     
     async def _deliver_notification(self, item: NotificationOutbox) -> bool:
-        """Deliver a notification via Discord DM and/or dashboard."""
-        success = False
+        """Deliver a notification via Discord DM."""
+        if not self.bot:
+            logger.warning("No bot reference available for notification delivery")
+            return False
         
-        # Try Discord DM
         try:
-            # Would need bot instance - implement via bot reference
-            pass
+            with SessionLocal() as db:
+                player = db.query(Player).filter(Player.id == item.player_id).first()
+                if not player:
+                    logger.warning(f"Player {item.player_id} not found for notification delivery")
+                    return False
+                
+                discord_user_id = int(player.discord_user_id)
+                user = await self.bot.fetch_user(discord_user_id)
+                if user:
+                    await user.send(item.message)
+                    logger.info(f"Notification sent to user {discord_user_id}: {item.message[:50]}...")
+                    return True
+                else:
+                    logger.warning(f"Could not fetch user {discord_user_id}")
+                    return False
         except Exception as e:
-            logger.warning(f"Failed to send DM: {e}")
-        
-        # Always mark as delivered for dashboard (it polls the outbox)
-        return True
+            logger.warning(f"Failed to send DM to player {item.player_id}: {e}")
+            return False
     
     # ==================== Preferences API ====================
     
@@ -404,6 +425,6 @@ class NotificationManager:
         return False
 
 
-def get_notification_manager(session: Session | None = None) -> NotificationManager:
+def get_notification_manager(session: Session | None = None, bot=None) -> NotificationManager:
     """Get a notification manager instance."""
-    return NotificationManager(session)
+    return NotificationManager(session, bot=bot)

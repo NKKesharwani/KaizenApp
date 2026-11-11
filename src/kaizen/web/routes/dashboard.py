@@ -23,6 +23,7 @@ from kaizen.db.session import get_db
 router = APIRouter()
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+templates.env.cache = None
 
 
 def _get_demo_player(db: Session) -> Player | None:

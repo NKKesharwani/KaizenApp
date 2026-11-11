@@ -1,87 +1,44 @@
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.py[c]
+*.py[cod]
 *$py.class
-*.pyc
-*.pyo
-.pyc
-*.pyo
-po/
-# Celery
-celerybeat-schedule*
-# Flask
-instance/
-.webassets-cache
-# Django
-*.log
-django.conf
-# SQLAlchemy
-kaizen.db
-# .env file
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Environments
 .env
-# Created by Cookiecutter
-*.env
-# PyCharm
-.idea/
-# Visual Studio Code
+.venv
+env/
+venv/
+ENV/
+
+# Database
+*.db
+*.sqlite3
+
+# IDE
 .vscode/
-# Docker
-.dockerignore
-# Poetry
-poetry.lock
-# Pipenv
-# PyYAML cache
-.yaml.cfg
-# Py Installer
-*.manifest
-*.exe
-*.icon
-# Installer logs
-pip-log.txt
-pip-delete-constraint.txt
-pip-grep.txt
-# twine
-# various
-.ipynb_checkpoints
-*.ptl
-# for Azure
-*.azureHist
-# for Heroku
-*.lock
-# for AWS
-.elasticbeanstalk
-# for CLOUD
-.werf
-# Misc
-.babelrc
-.dj30
-.hg
-~$*~
-*.rdb
-.buildpath
-.c9orm.profile
-.dockerinit
-.gerrit.trigger
-.hack
-.nib
-.nose
-.doc-mac
-.doc-text-only
-.doc-map
-.doc-robodoc
-.doc-project
-.xcode.user
-*.persistedState
+.idea/
+*.swp
+*.swo
+
+# OS
 .DS_Store
-.AppleDouble
-.AppleDesktop
-.Library
-.Library Sale
-.MSBuild
-_Note
-_Cache
 Thumbs.db
-nutstore
-*.docx
-*.xlsx
-*.pptx
